@@ -24,13 +24,18 @@ class TranslationService {
     if (text.trim().isEmpty) return text;
 
     try {
+      // If backend URL is empty or invalid, skip network call and simulate translation/fallback
+      if (config.backendBaseUrl.isEmpty || !config.backendBaseUrl.startsWith('http')) {
+        return _simulateTranslation(text);
+      }
+
       final user = ref.read(authControllerProvider).user;
       final idToken = user != null ? await user.getIdToken() : 'mock-token';
 
       final response = await http.get(
         Uri.parse('${config.backendBaseUrl}/v1/gemini/token'),
         headers: {'Authorization': 'Bearer $idToken'},
-      );
+      ).timeout(const Duration(seconds: 2));
 
       if (response.statusCode != 200) {
         throw Exception(
@@ -62,7 +67,7 @@ class TranslationService {
           'Just return the final English text itself:\n\n$text';
 
       final content = [Content.text(prompt)];
-      final responseObj = await model.generateContent(content);
+      final responseObj = await model.generateContent(content).timeout(const Duration(seconds: 3));
       final translated = responseObj.text;
 
       if (translated == null || translated.trim().isEmpty) {

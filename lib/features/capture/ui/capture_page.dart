@@ -224,15 +224,20 @@ class _CapturePageState extends ConsumerState<CapturePage> {
         await _tts.speak(translatedText);
 
         // Save to Drift database (save the raw scanned text)
-        await ref
-            .read(databaseProvider)
-            .into(ref.read(databaseProvider).ocrHistory)
-            .insert(
-              OcrHistoryCompanion.insert(
-                rawText: rawText,
-                createdAt: DateTime.now(),
-              ),
-            );
+        try {
+          await ref
+              .read(databaseProvider)
+              .into(ref.read(databaseProvider).ocrHistory)
+              .insert(
+                OcrHistoryCompanion.insert(
+                  rawText: rawText,
+                  createdAt: DateTime.now(),
+                ),
+              )
+              .timeout(const Duration(seconds: 1));
+        } catch (e) {
+          // Log or ignore database write failures gracefully
+        }
       } catch (e) {
         setState(() {
           _statusMessage = 'Error scanning document.';
@@ -253,15 +258,20 @@ class _CapturePageState extends ConsumerState<CapturePage> {
       await _tts.speak(translatedText);
 
       // Save to Drift database (save the raw scanned text)
-      await ref
-          .read(databaseProvider)
-          .into(ref.read(databaseProvider).ocrHistory)
-          .insert(
-            OcrHistoryCompanion.insert(
-              rawText: text,
-              createdAt: DateTime.now(),
-            ),
-          );
+      try {
+        await ref
+            .read(databaseProvider)
+            .into(ref.read(databaseProvider).ocrHistory)
+            .insert(
+              OcrHistoryCompanion.insert(
+                rawText: text,
+                createdAt: DateTime.now(),
+              ),
+            )
+            .timeout(const Duration(seconds: 1));
+      } catch (e) {
+        // Log or ignore database write failures gracefully
+      }
     }
   }
 
