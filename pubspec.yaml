@@ -25,6 +25,7 @@ dependencies:
   google_generative_ai: ^0.4.1
   google_maps_flutter: ^2.6.1
   google_mlkit_text_recognition: ^0.13.0
+  flutter_tesseract_ocr: ^0.4.30
   http: ^1.2.1
   intl: ^0.20.2
   mutex: ^3.1.0
@@ -47,3 +48,5 @@ flutter:
   generate: true
   assets:
     - assets/sounds/
+    - assets/tessdata_config.json
+    - assets/tessdata/

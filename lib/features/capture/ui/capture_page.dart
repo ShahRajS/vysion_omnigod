@@ -1,12 +1,13 @@
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_tesseract_ocr/flutter_tesseract_ocr.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:go_router/go_router.dart';
-import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 import 'package:vysion_omnigod/core/accessibility/gesture_decoder.dart';
 import 'package:vysion_omnigod/core/accessibility/haptics.dart';
 import 'package:vysion_omnigod/core/ai/gemini_live_client.dart';
+import 'package:vysion_omnigod/core/ai/translation_service.dart';
 import 'package:vysion_omnigod/core/storage/database.dart';
 import 'package:vysion_omnigod/features/settings/controllers/settings_controller.dart';
 
@@ -34,7 +35,6 @@ class CapturePage extends ConsumerStatefulWidget {
 class _CapturePageState extends ConsumerState<CapturePage> {
   CameraController? _cameraController;
   final FlutterTts _tts = FlutterTts();
-  final TextRecognizer _textRecognizer = TextRecognizer();
   CaptureMode _currentMode = CaptureMode.read;
   bool _isProcessing = false;
 
@@ -64,7 +64,6 @@ class _CapturePageState extends ConsumerState<CapturePage> {
   @override
   void dispose() {
     _cameraController?.dispose();
-    _textRecognizer.close();
     _tts.stop();
     super.dispose();
   }
@@ -120,15 +119,24 @@ class _CapturePageState extends ConsumerState<CapturePage> {
   Future<void> _performOcr() async {
     if (_cameraController != null && _cameraController!.value.isInitialized) {
       final image = await _cameraController!.takePicture();
-      final inputImage = InputImage.fromFilePath(image.path);
-      final recognizedText = await _textRecognizer.processImage(inputImage);
+      
+      // Perform local offline OCR using Tesseract, loading both English and Spanish traineddata
+      final rawText = await FlutterTesseractOcr.extractText(
+        image.path,
+        language: 'eng+spa',
+        args: {
+          'psm': '4',
+          'preserve_interword_spaces': '1',
+        },
+      );
 
-      final text = recognizedText.text.isNotEmpty
-          ? recognizedText.text
-          : 'No text detected in sign.';
-      await _tts.speak(text);
+      final text = rawText.trim().isNotEmpty ? rawText.trim() : 'No text detected in sign.';
+      
+      // Translate to English if necessary using Gemini
+      final translatedText = await ref.read(translationServiceProvider).translateToEnglish(text);
+      await _tts.speak(translatedText);
 
-      // Save to Drift database
+      // Save to Drift database (save the raw scanned text)
       await ref
           .read(databaseProvider)
           .into(ref.read(databaseProvider).ocrHistory)
@@ -140,7 +148,8 @@ class _CapturePageState extends ConsumerState<CapturePage> {
           );
     } else {
       await _tts.speak(
-          'Offline OCR simulation: Transit sign says platform 3 train approaching.',);
+        'Offline OCR simulation: Transit sign says platform 3 train approaching.',
+      );
     }
   }
 
@@ -209,6 +218,7 @@ class _CapturePageState extends ConsumerState<CapturePage> {
               right: 20,
               child: _buildFooter(theme),
             ),
+            _buildShutterButton(theme),
           ],
         ),
       ),
@@ -276,6 +286,76 @@ class _CapturePageState extends ConsumerState<CapturePage> {
             style: TextStyle(color: Colors.white70, fontSize: 13),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildShutterButton(ThemeData theme) {
+    final color = theme.colorScheme.secondary;
+
+    return Positioned(
+      bottom: 170,
+      left: 0,
+      right: 0,
+      child: Center(
+        child: Semantics(
+          button: true,
+          label: 'Take picture and analyze',
+          child: GestureDetector(
+            onTap: _executeActiveModeAction,
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 200),
+              width: 84,
+              height: 84,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: Colors.black.withOpacity(0.5),
+                border: Border.all(
+                  color: color.withOpacity(0.6),
+                  width: 4,
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: color.withOpacity(0.3),
+                    blurRadius: 16,
+                    spreadRadius: 2,
+                  ),
+                ],
+              ),
+              child: Center(
+                child: _isProcessing
+                    ? SizedBox(
+                        width: 32,
+                        height: 32,
+                        child: CircularProgressIndicator(
+                          color: color,
+                          strokeWidth: 3,
+                        ),
+                      )
+                    : Container(
+                        width: 56,
+                        height: 56,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: color,
+                          boxShadow: const [
+                            BoxShadow(
+                              color: Colors.black26,
+                              blurRadius: 4,
+                              offset: Offset(0, 2),
+                            ),
+                          ],
+                        ),
+                        child: const Icon(
+                          Icons.camera_alt,
+                          color: Colors.black,
+                          size: 28,
+                        ),
+                      ),
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }
