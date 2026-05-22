@@ -1,12 +1,15 @@
+import 'dart:io';
 import 'package:camera/camera.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:blinkid_flutter/blinkid_flutter.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:go_router/go_router.dart';
-import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 import 'package:vysion_omnigod/core/accessibility/gesture_decoder.dart';
 import 'package:vysion_omnigod/core/accessibility/haptics.dart';
 import 'package:vysion_omnigod/core/ai/gemini_live_client.dart';
+import 'package:vysion_omnigod/core/ai/translation_service.dart';
 import 'package:vysion_omnigod/core/storage/database.dart';
 import 'package:vysion_omnigod/features/settings/controllers/settings_controller.dart';
 
@@ -34,9 +37,9 @@ class CapturePage extends ConsumerStatefulWidget {
 class _CapturePageState extends ConsumerState<CapturePage> {
   CameraController? _cameraController;
   final FlutterTts _tts = FlutterTts();
-  final TextRecognizer _textRecognizer = TextRecognizer();
   CaptureMode _currentMode = CaptureMode.read;
   bool _isProcessing = false;
+  String? _statusMessage;
 
   @override
   void initState() {
@@ -55,6 +58,8 @@ class _CapturePageState extends ConsumerState<CapturePage> {
         );
         await _cameraController!.initialize();
         if (mounted) setState(() {});
+      } else {
+        await _tts.speak('Camera not available. Simulating capture environment.');
       }
     } catch (e) {
       await _tts.speak('Camera not available. Simulating capture environment.');
@@ -64,7 +69,6 @@ class _CapturePageState extends ConsumerState<CapturePage> {
   @override
   void dispose() {
     _cameraController?.dispose();
-    _textRecognizer.close();
     _tts.stop();
     super.dispose();
   }
@@ -91,13 +95,17 @@ class _CapturePageState extends ConsumerState<CapturePage> {
     final newIndex = (_currentMode.index + step) % CaptureMode.values.length;
     setState(() {
       _currentMode = CaptureMode.values[newIndex];
+      _statusMessage = null;
     });
     _tts.speak('Switched to ${_currentMode.name} mode.');
   }
 
   Future<void> _executeActiveModeAction() async {
     if (_isProcessing) return;
-    setState(() => _isProcessing = true);
+    setState(() {
+      _isProcessing = true;
+      _statusMessage = 'Analyzing image...';
+    });
     await _tts.speak('Processing input.');
 
     try {
@@ -117,30 +125,153 @@ class _CapturePageState extends ConsumerState<CapturePage> {
     }
   }
 
+  String? _getStringValue(StringResult? res) {
+    if (res == null) return null;
+    return res.latin ?? res.value ?? res.arabic ?? res.cyrillic ?? res.greek;
+  }
+
+  String? _getDateString(DateResult<StringResult>? dateResult) {
+    if (dateResult == null) return null;
+    final d = dateResult.date;
+    if (d != null && d.day != null && d.month != null && d.year != null) {
+      return '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+    }
+    return _getStringValue(dateResult.originalString);
+  }
+
   Future<void> _performOcr() async {
-    if (_cameraController != null && _cameraController!.value.isInitialized) {
-      final image = await _cameraController!.takePicture();
-      final inputImage = InputImage.fromFilePath(image.path);
-      final recognizedText = await _textRecognizer.processImage(inputImage);
+    // BlinkID does not support web or tests. If running on web or under test, use simulation mode.
+    final bool isTest = !kIsWeb && Platform.environment.containsKey('FLUTTER_TEST');
+    if (!kIsWeb && !isTest) {
+      try {
+        // Platform specific license keys. Microblink license keys are bundle ID / package name specific.
+        String licenseKey = '';
+        if (defaultTargetPlatform == TargetPlatform.android) {
+          licenseKey = 'YOUR_ANDROID_LICENSE_KEY';
+        } else if (defaultTargetPlatform == TargetPlatform.iOS) {
+          licenseKey = 'YOUR_IOS_LICENSE_KEY';
+        }
 
-      final text = recognizedText.text.isNotEmpty
-          ? recognizedText.text
-          : 'No text detected in sign.';
-      await _tts.speak(text);
+        final sdkSettings = BlinkIdSdkSettings(licenseKey);
+        sdkSettings.downloadResources = true;
 
-      // Save to Drift database
-      await ref
-          .read(databaseProvider)
-          .into(ref.read(databaseProvider).ocrHistory)
-          .insert(
-            OcrHistoryCompanion.insert(
-              rawText: text,
-              createdAt: DateTime.now(),
-            ),
-          );
+        final sessionSettings = BlinkIdSessionSettings();
+        sessionSettings.scanningMode = ScanningMode.automatic;
+
+        final blinkidPlugin = BlinkidFlutter();
+        final result = await blinkidPlugin.performScan(
+          sdkSettings,
+          sessionSettings,
+        );
+
+        if (result == null) {
+          setState(() {
+            _statusMessage = 'Scan canceled.';
+          });
+          await _tts.speak('Scan canceled.');
+          return;
+        }
+
+        String? docType;
+        if (result.documentClassInfo != null) {
+          final classInfo = result.documentClassInfo!;
+          final countryName = classInfo.countryName;
+          final docTypeName = classInfo.documentType?.name.toUpperCase();
+          if (countryName != null && docTypeName != null) {
+            docType = '$countryName $docTypeName';
+          } else if (countryName != null) {
+            docType = '$countryName Document';
+          } else if (docTypeName != null) {
+            docType = docTypeName;
+          }
+        }
+
+        final name = _getStringValue(result.fullName) ??
+            '${_getStringValue(result.firstName) ?? ''} ${_getStringValue(result.lastName) ?? ''}'.trim();
+        final docNum = _getStringValue(result.documentNumber);
+        final dob = _getDateString(result.dateOfBirth);
+        final issuer = _getStringValue(result.issuingAuthority);
+
+        final List<String> details = [];
+        if (docType != null && docType.isNotEmpty) {
+          details.add('Document Type: $docType');
+        }
+        if (name.isNotEmpty) {
+          details.add('Name: $name');
+        }
+        if (docNum != null && docNum.isNotEmpty) {
+          details.add('Document Number: $docNum');
+        }
+        if (dob != null && dob.isNotEmpty) {
+          details.add('Born: $dob');
+        }
+        if (issuer != null && issuer.isNotEmpty) {
+          details.add('Issued by: $issuer');
+        }
+
+        final rawText = details.isNotEmpty
+            ? 'Identity Document scanned. ${details.join(". ")}.'
+            : 'Identity Document scanned, but no legible fields detected.';
+
+        final hasText = details.isNotEmpty;
+
+        // Translate to English if necessary using Gemini
+        final translatedText = await ref.read(translationServiceProvider).translateToEnglish(rawText);
+
+        setState(() {
+          _statusMessage = hasText ? 'Scanned: "$translatedText"' : 'No text detected.';
+        });
+        await _tts.speak(translatedText);
+
+        // Save to Drift database (save the raw scanned text)
+        try {
+          await ref
+              .read(databaseProvider)
+              .into(ref.read(databaseProvider).ocrHistory)
+              .insert(
+                OcrHistoryCompanion.insert(
+                  rawText: rawText,
+                  createdAt: DateTime.now(),
+                ),
+              )
+              .timeout(const Duration(seconds: 1));
+        } catch (e) {
+          // Log or ignore database write failures gracefully
+        }
+      } catch (e) {
+        setState(() {
+          _statusMessage = 'Error scanning document.';
+        });
+        await _tts.speak('Error scanning document.');
+      }
     } else {
-      await _tts.speak(
-          'Offline OCR simulation: Transit sign says platform 3 train approaching.',);
+      // Simulation fallback for Web or simulator environments where native OCR is unavailable
+      final text = kIsWeb
+          ? 'Documento de Identidad: Juan Pérez, Fecha de nacimiento: 14 de diciembre de 1990, Número de documento: 12345678A.'
+          : 'Identity Document scanned. Document Type: USA DRIVER LICENSE. Name: JOHN DOE. Document Number: D1234567. Born: 1990-12-14.';
+
+      final translatedText = await ref.read(translationServiceProvider).translateToEnglish(text);
+      
+      setState(() {
+        _statusMessage = 'Scanned: "$translatedText"';
+      });
+      await _tts.speak(translatedText);
+
+      // Save to Drift database (save the raw scanned text)
+      try {
+        await ref
+            .read(databaseProvider)
+            .into(ref.read(databaseProvider).ocrHistory)
+            .insert(
+              OcrHistoryCompanion.insert(
+                rawText: text,
+                createdAt: DateTime.now(),
+              ),
+            )
+            .timeout(const Duration(seconds: 1));
+      } catch (e) {
+        // Log or ignore database write failures gracefully
+      }
     }
   }
 
@@ -162,7 +293,10 @@ class _CapturePageState extends ConsumerState<CapturePage> {
   Future<void> _cancelActiveOperation() async {
     await AccessibleHaptics.playErrorOrCancel();
     await _tts.stop();
-    setState(() => _isProcessing = false);
+    setState(() {
+      _isProcessing = false;
+      _statusMessage = 'Operation canceled.';
+    });
     await _tts.speak('Operation canceled.');
   }
 
@@ -204,11 +338,18 @@ class _CapturePageState extends ConsumerState<CapturePage> {
               child: _buildHeader(theme),
             ),
             Positioned(
+              top: 110,
+              left: 20,
+              right: 20,
+              child: Center(child: _buildStatusBadge(theme)),
+            ),
+            Positioned(
               bottom: 40,
               left: 20,
               right: 20,
               child: _buildFooter(theme),
             ),
+            _buildShutterButton(theme),
           ],
         ),
       ),
@@ -274,6 +415,135 @@ class _CapturePageState extends ConsumerState<CapturePage> {
             'Swipe left/right to change modes. Tap to action. Swipe down to open settings.',
             textAlign: TextAlign.center,
             style: TextStyle(color: Colors.white70, fontSize: 13),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildShutterButton(ThemeData theme) {
+    final color = theme.colorScheme.secondary;
+
+    return Positioned(
+      bottom: 170,
+      left: 0,
+      right: 0,
+      child: Center(
+        child: Semantics(
+          button: true,
+          label: 'Take picture and analyze',
+          child: GestureDetector(
+            onTap: _executeActiveModeAction,
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 200),
+              width: 84,
+              height: 84,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: Colors.black.withOpacity(0.5),
+                border: Border.all(
+                  color: color.withOpacity(0.6),
+                  width: 4,
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: color.withOpacity(0.3),
+                    blurRadius: 16,
+                    spreadRadius: 2,
+                  ),
+                ],
+              ),
+              child: Center(
+                child: _isProcessing
+                    ? SizedBox(
+                        width: 32,
+                        height: 32,
+                        child: CircularProgressIndicator(
+                          color: color,
+                          strokeWidth: 3,
+                        ),
+                      )
+                    : Container(
+                        width: 56,
+                        height: 56,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: color,
+                          boxShadow: const [
+                            BoxShadow(
+                              color: Colors.black26,
+                              blurRadius: 4,
+                              offset: Offset(0, 2),
+                            ),
+                          ],
+                        ),
+                        child: const Icon(
+                          Icons.camera_alt,
+                          color: Colors.black,
+                          size: 28,
+                        ),
+                      ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStatusBadge(ThemeData theme) {
+    if (_statusMessage == null && !_isProcessing) return const SizedBox.shrink();
+
+    final isErrorOrNoText = _statusMessage?.contains('No text') ?? false;
+    final isCanceled = _statusMessage?.contains('canceled') ?? false;
+    final color = _isProcessing
+        ? theme.colorScheme.secondary
+        : (isErrorOrNoText || isCanceled ? Colors.amber : Colors.greenAccent);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.black.withOpacity(0.85),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: color.withOpacity(0.5)),
+        boxShadow: [
+          BoxShadow(
+            color: color.withOpacity(0.15),
+            blurRadius: 10,
+            spreadRadius: 1,
+          ),
+        ],
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (_isProcessing)
+            SizedBox(
+              width: 14,
+              height: 14,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                valueColor: AlwaysStoppedAnimation<Color>(color),
+              ),
+            )
+          else
+            Icon(
+              isErrorOrNoText || isCanceled ? Icons.warning_amber_rounded : Icons.check_circle_outline,
+              color: color,
+              size: 16,
+            ),
+          const SizedBox(width: 8),
+          Flexible(
+            child: Text(
+              _statusMessage ?? '',
+              style: TextStyle(
+                color: Colors.white.withOpacity(0.95),
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
+              ),
+              overflow: TextOverflow.ellipsis,
+              maxLines: 1,
+            ),
           ),
         ],
       ),

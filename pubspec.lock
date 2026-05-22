@@ -49,6 +49,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.13.1"
+  blinkid_flutter:
+    dependency: "direct main"
+    description:
+      name: blinkid_flutter
+      sha256: cfe773b836df04eebd95cc12763b399ebb68d850fb59a0551eec5d88634ae7e6
+      url: "https://pub.dev"
+    source: hosted
+    version: "7.7.0"
   boolean_selector:
     dependency: transitive
     description:
