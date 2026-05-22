@@ -1,8 +1,9 @@
+import 'dart:io';
 import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:blinkid_flutter/blinkid_flutter.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_tesseract_ocr/flutter_tesseract_ocr.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:go_router/go_router.dart';
 import 'package:vysion_omnigod/core/accessibility/gesture_decoder.dart';
@@ -57,6 +58,8 @@ class _CapturePageState extends ConsumerState<CapturePage> {
         );
         await _cameraController!.initialize();
         if (mounted) setState(() {});
+      } else {
+        await _tts.speak('Camera not available. Simulating capture environment.');
       }
     } catch (e) {
       await _tts.speak('Camera not available. Simulating capture environment.');
@@ -122,47 +125,125 @@ class _CapturePageState extends ConsumerState<CapturePage> {
     }
   }
 
+  String? _getStringValue(StringResult? res) {
+    if (res == null) return null;
+    return res.latin ?? res.value ?? res.arabic ?? res.cyrillic ?? res.greek;
+  }
+
+  String? _getDateString(DateResult<StringResult>? dateResult) {
+    if (dateResult == null) return null;
+    final d = dateResult.date;
+    if (d != null && d.day != null && d.month != null && d.year != null) {
+      return '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+    }
+    return _getStringValue(dateResult.originalString);
+  }
+
   Future<void> _performOcr() async {
-    // Tesseract OCR native binaries do not support web. If running on web, use simulation mode.
-    if (!kIsWeb && _cameraController != null && _cameraController!.value.isInitialized) {
-      final image = await _cameraController!.takePicture();
-      
-      // Perform local offline OCR using Tesseract, loading both English and Spanish traineddata
-      final rawText = await FlutterTesseractOcr.extractText(
-        image.path,
-        language: 'eng+spa',
-        args: {
-          'psm': '4',
-          'preserve_interword_spaces': '1',
-        },
-      );
+    // BlinkID does not support web or tests. If running on web or under test, use simulation mode.
+    final bool isTest = !kIsWeb && Platform.environment.containsKey('FLUTTER_TEST');
+    if (!kIsWeb && !isTest) {
+      try {
+        // Platform specific license keys. Microblink license keys are bundle ID / package name specific.
+        String licenseKey = '';
+        if (defaultTargetPlatform == TargetPlatform.android) {
+          licenseKey = 'YOUR_ANDROID_LICENSE_KEY';
+        } else if (defaultTargetPlatform == TargetPlatform.iOS) {
+          licenseKey = 'YOUR_IOS_LICENSE_KEY';
+        }
 
-      final text = rawText.trim().isNotEmpty ? rawText.trim() : 'No text detected in sign.';
-      final hasText = rawText.trim().isNotEmpty;
-      
-      // Translate to English if necessary using Gemini
-      final translatedText = await ref.read(translationServiceProvider).translateToEnglish(text);
-      
-      setState(() {
-        _statusMessage = hasText ? 'Scanned: "$translatedText"' : 'No text detected.';
-      });
-      await _tts.speak(translatedText);
+        final sdkSettings = BlinkIdSdkSettings(licenseKey);
+        sdkSettings.downloadResources = true;
 
-      // Save to Drift database (save the raw scanned text)
-      await ref
-          .read(databaseProvider)
-          .into(ref.read(databaseProvider).ocrHistory)
-          .insert(
-            OcrHistoryCompanion.insert(
-              rawText: text,
-              createdAt: DateTime.now(),
-            ),
-          );
+        final sessionSettings = BlinkIdSessionSettings();
+        sessionSettings.scanningMode = ScanningMode.automatic;
+
+        final blinkidPlugin = BlinkidFlutter();
+        final result = await blinkidPlugin.performScan(
+          sdkSettings,
+          sessionSettings,
+        );
+
+        if (result == null) {
+          setState(() {
+            _statusMessage = 'Scan canceled.';
+          });
+          await _tts.speak('Scan canceled.');
+          return;
+        }
+
+        String? docType;
+        if (result.documentClassInfo != null) {
+          final classInfo = result.documentClassInfo!;
+          final countryName = classInfo.countryName;
+          final docTypeName = classInfo.documentType?.name.toUpperCase();
+          if (countryName != null && docTypeName != null) {
+            docType = '$countryName $docTypeName';
+          } else if (countryName != null) {
+            docType = '$countryName Document';
+          } else if (docTypeName != null) {
+            docType = docTypeName;
+          }
+        }
+
+        final name = _getStringValue(result.fullName) ??
+            '${_getStringValue(result.firstName) ?? ''} ${_getStringValue(result.lastName) ?? ''}'.trim();
+        final docNum = _getStringValue(result.documentNumber);
+        final dob = _getDateString(result.dateOfBirth);
+        final issuer = _getStringValue(result.issuingAuthority);
+
+        final List<String> details = [];
+        if (docType != null && docType.isNotEmpty) {
+          details.add('Document Type: $docType');
+        }
+        if (name.isNotEmpty) {
+          details.add('Name: $name');
+        }
+        if (docNum != null && docNum.isNotEmpty) {
+          details.add('Document Number: $docNum');
+        }
+        if (dob != null && dob.isNotEmpty) {
+          details.add('Born: $dob');
+        }
+        if (issuer != null && issuer.isNotEmpty) {
+          details.add('Issued by: $issuer');
+        }
+
+        final rawText = details.isNotEmpty
+            ? 'Identity Document scanned. ${details.join(". ")}.'
+            : 'Identity Document scanned, but no legible fields detected.';
+
+        final hasText = details.isNotEmpty;
+
+        // Translate to English if necessary using Gemini
+        final translatedText = await ref.read(translationServiceProvider).translateToEnglish(rawText);
+
+        setState(() {
+          _statusMessage = hasText ? 'Scanned: "$translatedText"' : 'No text detected.';
+        });
+        await _tts.speak(translatedText);
+
+        // Save to Drift database (save the raw scanned text)
+        await ref
+            .read(databaseProvider)
+            .into(ref.read(databaseProvider).ocrHistory)
+            .insert(
+              OcrHistoryCompanion.insert(
+                rawText: rawText,
+                createdAt: DateTime.now(),
+              ),
+            );
+      } catch (e) {
+        setState(() {
+          _statusMessage = 'Error scanning document.';
+        });
+        await _tts.speak('Error scanning document.');
+      }
     } else {
       // Simulation fallback for Web or simulator environments where native OCR is unavailable
       final text = kIsWeb
-          ? 'Spanish transit sign: Cuidado con el escalón.'
-          : 'Transit sign says platform 3 train approaching.';
+          ? 'Documento de Identidad: Juan Pérez, Fecha de nacimiento: 14 de diciembre de 1990, Número de documento: 12345678A.'
+          : 'Identity Document scanned. Document Type: USA DRIVER LICENSE. Name: JOHN DOE. Document Number: D1234567. Born: 1990-12-14.';
 
       final translatedText = await ref.read(translationServiceProvider).translateToEnglish(text);
       
