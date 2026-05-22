@@ -1,15 +1,33 @@
+<<<<<<< Updated upstream
 import 'dart:io';
 import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
+=======
+import 'dart:developer' as developer;
+import 'dart:io';
+import 'dart:typed_data';
+
+import 'package:audioplayers/audioplayers.dart';
+import 'package:camera/camera.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+>>>>>>> Stashed changes
 import 'package:flutter/material.dart';
 import 'package:blinkid_flutter/blinkid_flutter.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:go_router/go_router.dart';
+<<<<<<< Updated upstream
 import 'package:vysion_omnigod/core/accessibility/gesture_decoder.dart';
 import 'package:vysion_omnigod/core/accessibility/haptics.dart';
 import 'package:vysion_omnigod/core/ai/gemini_live_client.dart';
 import 'package:vysion_omnigod/core/ai/translation_service.dart';
+=======
+import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
+import 'package:vysion_omnigod/app/config/app_config.dart';
+import 'package:vysion_omnigod/core/accessibility/gesture_decoder.dart';
+import 'package:vysion_omnigod/core/accessibility/haptics.dart';
+import 'package:vysion_omnigod/core/ai/photo_describe_client.dart';
+>>>>>>> Stashed changes
 import 'package:vysion_omnigod/core/storage/database.dart';
 import 'package:vysion_omnigod/features/settings/controllers/settings_controller.dart';
 
@@ -37,6 +55,13 @@ class CapturePage extends ConsumerStatefulWidget {
 class _CapturePageState extends ConsumerState<CapturePage> {
   CameraController? _cameraController;
   final FlutterTts _tts = FlutterTts();
+<<<<<<< Updated upstream
+=======
+  final TextRecognizer _textRecognizer = TextRecognizer();
+  final AudioPlayer _audioPlayer = AudioPlayer();
+  late final PhotoDescribeClient _photoDescribeClient;
+  Uint8List? _lastCapturedImageBytes;
+>>>>>>> Stashed changes
   CaptureMode _currentMode = CaptureMode.read;
   bool _isProcessing = false;
   String? _statusMessage;
@@ -46,6 +71,9 @@ class _CapturePageState extends ConsumerState<CapturePage> {
     super.initState();
     _initializeCamera();
     _tts.setSpeechRate(ref.read(settingsControllerProvider).speechRate);
+    _photoDescribeClient = PhotoDescribeClient(
+      config: ref.read(appConfigProvider),
+    );
   }
 
   Future<void> _initializeCamera() async {
@@ -69,6 +97,11 @@ class _CapturePageState extends ConsumerState<CapturePage> {
   @override
   void dispose() {
     _cameraController?.dispose();
+<<<<<<< Updated upstream
+=======
+    _textRecognizer.close();
+    _audioPlayer.dispose();
+>>>>>>> Stashed changes
     _tts.stop();
     super.dispose();
   }
@@ -275,14 +308,69 @@ class _CapturePageState extends ConsumerState<CapturePage> {
     }
   }
 
-  Future<void> _performLiveDescribe() async {
-    final client = ref.read(geminiLiveClientProvider);
-    if (!client.isConnected) {
-      await client.connect(
-          token: 'mock-gemini-live-ephemeral-key', isApiKey: true,);
+  Future<String> _getBackendAuthToken() async {
+    final user = ref.read(firebaseAuthProvider).currentUser;
+    if (user == null) {
+      return 'mock-token';
     }
+    return await user.getIdToken();
+  }
+
+  Future<void> _saveDescription(String description) async {
+    await ref
+        .read(databaseProvider)
+        .into(ref.read(databaseProvider).descriptionHistory)
+        .insert(
+          DescriptionHistoryCompanion.insert(
+            description: description,
+            createdAt: DateTime.now(),
+          ),
+        );
+  }
+
+  Future<void> _performLiveDescribe() async {
+    if (_cameraController != null && _cameraController!.value.isInitialized) {
+      final picture = await _cameraController!.takePicture();
+      final imageBytes = await picture.readAsBytes();
+      _lastCapturedImageBytes = imageBytes;
+      final authToken = await _getBackendAuthToken();
+
+      await _tts.speak('Photo captured. Sending image to backend for description.');
+
+      try {
+        final result = await _photoDescribeClient.describePhoto(
+          imageBytes: imageBytes,
+          authToken: authToken,
+        );
+
+        if (result.description.isNotEmpty) {
+          await _saveDescription(result.description);
+        }
+
+        await _tts.speak('Playing the generated audio description.');
+        await _audioPlayer.play(BytesSource(result.audioBytes));
+      } catch (e) {
+        developer.log('Photo describe request failed', error: e);
+        await _tts.speak(
+          'Unable to process the photo through the backend description pipeline.',
+        );
+      }
+
+      final capturedFile = File(picture.path);
+      try {
+        if (await capturedFile.exists()) {
+          await capturedFile.delete();
+          developer.log('Temporary captured image deleted.');
+        }
+      } catch (e) {
+        developer.log('Failed to delete temporary picture file', error: e);
+      }
+      return;
+    }
+
     await _tts.speak(
-        "Gemini Live describes: You are walking down a concrete sidewalk. A metal obstacle is located 2 meters in front of you at twelve o'clock.",);
+      "Gemini Live describes: You are walking down a concrete sidewalk. A metal obstacle is located 2 meters in front of you at twelve o'clock.",
+    );
   }
 
   Future<void> _performNavigationDemo() async {
