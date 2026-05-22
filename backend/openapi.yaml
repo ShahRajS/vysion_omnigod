@@ -75,6 +75,45 @@ paths:
           description: Unauthorized request
         '500':
           description: External Places API exception
+
+  /v1/photo/describe:
+    post:
+      summary: Describe a captured photo with Gemini and stream MP3 audio back to the client
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          image/jpeg:
+            schema:
+              type: string
+              format: binary
+      responses:
+        '200':
+          description: MP3 audio bytes containing the spoken description
+          headers:
+            X-Description:
+              description: Generated textual description of the image
+              schema:
+                type: string
+          content:
+            audio/mpeg:
+              schema:
+                type: string
+                format: binary
+        '400':
+          description: Invalid request body or content type
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+        '401':
+          description: Unauthorized request
+        '500':
+          description: Photo describe pipeline failed
 components:
   securitySchemes:
     BearerAuth:

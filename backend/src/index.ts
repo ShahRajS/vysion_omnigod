@@ -4,6 +4,7 @@ import * as admin from 'firebase-admin';
 import { getGeminiToken } from './services/gemini-token';
 import { checkSubscriptionStatus } from './services/stripe';
 import { proxyPlacesSearch } from './services/maps-proxy';
+import { describePhoto } from './services/photo-describe';
 
 // Initialize Firebase Admin SDK
 try {
@@ -59,6 +60,12 @@ export async function validateFirebaseJwt(
 app.get('/v1/gemini/token', validateFirebaseJwt as any, getGeminiToken);
 app.get('/v1/subscription/status', validateFirebaseJwt as any, checkSubscriptionStatus);
 app.post('/v1/places/proxy', validateFirebaseJwt as any, proxyPlacesSearch);
+app.post(
+  '/v1/photo/describe',
+  express.raw({ type: ['image/*', 'application/octet-stream'], limit: '10mb' }),
+  validateFirebaseJwt as any,
+  describePhoto,
+);
 
 // Default Health Probe
 app.get('/health', (req: Request, res: Response) => {
