@@ -117,7 +117,8 @@ class _CapturePageState extends ConsumerState<CapturePage> {
   }
 
   Future<void> _performOcr() async {
-    if (_cameraController != null && _cameraController!.value.isInitialized) {
+    // Tesseract OCR native binaries do not support web. If running on web, use simulation mode.
+    if (!kIsWeb && _cameraController != null && _cameraController!.value.isInitialized) {
       final image = await _cameraController!.takePicture();
       
       // Perform local offline OCR using Tesseract, loading both English and Spanish traineddata
@@ -147,9 +148,24 @@ class _CapturePageState extends ConsumerState<CapturePage> {
             ),
           );
     } else {
-      await _tts.speak(
-        'Offline OCR simulation: Transit sign says platform 3 train approaching.',
-      );
+      // Simulation fallback for Web or simulator environments where native OCR is unavailable
+      final text = kIsWeb
+          ? 'Spanish transit sign: Cuidado con el escalón.'
+          : 'Transit sign says platform 3 train approaching.';
+
+      final translatedText = await ref.read(translationServiceProvider).translateToEnglish(text);
+      await _tts.speak(translatedText);
+
+      // Save to Drift database (save the raw scanned text)
+      await ref
+          .read(databaseProvider)
+          .into(ref.read(databaseProvider).ocrHistory)
+          .insert(
+            OcrHistoryCompanion.insert(
+              rawText: text,
+              createdAt: DateTime.now(),
+            ),
+          );
     }
   }
 
