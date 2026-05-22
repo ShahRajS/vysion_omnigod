@@ -38,6 +38,7 @@ class _CapturePageState extends ConsumerState<CapturePage> {
   final FlutterTts _tts = FlutterTts();
   CaptureMode _currentMode = CaptureMode.read;
   bool _isProcessing = false;
+  String? _statusMessage;
 
   @override
   void initState() {
@@ -91,13 +92,17 @@ class _CapturePageState extends ConsumerState<CapturePage> {
     final newIndex = (_currentMode.index + step) % CaptureMode.values.length;
     setState(() {
       _currentMode = CaptureMode.values[newIndex];
+      _statusMessage = null;
     });
     _tts.speak('Switched to ${_currentMode.name} mode.');
   }
 
   Future<void> _executeActiveModeAction() async {
     if (_isProcessing) return;
-    setState(() => _isProcessing = true);
+    setState(() {
+      _isProcessing = true;
+      _statusMessage = 'Analyzing image...';
+    });
     await _tts.speak('Processing input.');
 
     try {
@@ -133,9 +138,14 @@ class _CapturePageState extends ConsumerState<CapturePage> {
       );
 
       final text = rawText.trim().isNotEmpty ? rawText.trim() : 'No text detected in sign.';
+      final hasText = rawText.trim().isNotEmpty;
       
       // Translate to English if necessary using Gemini
       final translatedText = await ref.read(translationServiceProvider).translateToEnglish(text);
+      
+      setState(() {
+        _statusMessage = hasText ? 'Scanned: "$translatedText"' : 'No text detected.';
+      });
       await _tts.speak(translatedText);
 
       // Save to Drift database (save the raw scanned text)
@@ -155,6 +165,10 @@ class _CapturePageState extends ConsumerState<CapturePage> {
           : 'Transit sign says platform 3 train approaching.';
 
       final translatedText = await ref.read(translationServiceProvider).translateToEnglish(text);
+      
+      setState(() {
+        _statusMessage = 'Scanned: "$translatedText"';
+      });
       await _tts.speak(translatedText);
 
       // Save to Drift database (save the raw scanned text)
@@ -188,7 +202,10 @@ class _CapturePageState extends ConsumerState<CapturePage> {
   Future<void> _cancelActiveOperation() async {
     await AccessibleHaptics.playErrorOrCancel();
     await _tts.stop();
-    setState(() => _isProcessing = false);
+    setState(() {
+      _isProcessing = false;
+      _statusMessage = 'Operation canceled.';
+    });
     await _tts.speak('Operation canceled.');
   }
 
@@ -228,6 +245,12 @@ class _CapturePageState extends ConsumerState<CapturePage> {
               left: 20,
               right: 20,
               child: _buildHeader(theme),
+            ),
+            Positioned(
+              top: 110,
+              left: 20,
+              right: 20,
+              child: Center(child: _buildStatusBadge(theme)),
             ),
             Positioned(
               bottom: 40,
@@ -373,6 +396,65 @@ class _CapturePageState extends ConsumerState<CapturePage> {
             ),
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildStatusBadge(ThemeData theme) {
+    if (_statusMessage == null && !_isProcessing) return const SizedBox.shrink();
+
+    final isErrorOrNoText = _statusMessage?.contains('No text') ?? false;
+    final isCanceled = _statusMessage?.contains('canceled') ?? false;
+    final color = _isProcessing
+        ? theme.colorScheme.secondary
+        : (isErrorOrNoText || isCanceled ? Colors.amber : Colors.greenAccent);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.black.withOpacity(0.85),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: color.withOpacity(0.5)),
+        boxShadow: [
+          BoxShadow(
+            color: color.withOpacity(0.15),
+            blurRadius: 10,
+            spreadRadius: 1,
+          ),
+        ],
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (_isProcessing)
+            SizedBox(
+              width: 14,
+              height: 14,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                valueColor: AlwaysStoppedAnimation<Color>(color),
+              ),
+            )
+          else
+            Icon(
+              isErrorOrNoText || isCanceled ? Icons.warning_amber_rounded : Icons.check_circle_outline,
+              color: color,
+              size: 16,
+            ),
+          const SizedBox(width: 8),
+          Flexible(
+            child: Text(
+              _statusMessage ?? '',
+              style: TextStyle(
+                color: Colors.white.withOpacity(0.95),
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
+              ),
+              overflow: TextOverflow.ellipsis,
+              maxLines: 1,
+            ),
+          ),
+        ],
       ),
     );
   }
