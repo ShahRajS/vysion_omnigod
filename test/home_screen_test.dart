@@ -5,10 +5,28 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:vysion_omnigod/app/config/app_config.dart';
+import 'package:vysion_omnigod/camera_provider.dart';
 import 'package:vysion_omnigod/core/ai/translation_service.dart';
 import 'package:vysion_omnigod/core/storage/database.dart';
-import 'package:vysion_omnigod/features/capture/ui/capture_page.dart';
 import 'package:vysion_omnigod/features/settings/controllers/settings_controller.dart';
+import 'package:vysion_omnigod/home_screen.dart';
+
+class FakeCameraNotifier extends CameraNotifier {
+  FakeCameraNotifier() {
+    state = CameraAppState(
+      cameras: const [],
+      isInitialized: false,
+      isPermissionGranted: true,
+      isPermissionDeniedPermanently: false,
+    );
+  }
+
+  @override
+  Future<void> init() async {}
+
+  @override
+  Future<void> checkPermissionAndInitialize() async {}
+}
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -32,23 +50,14 @@ void main() {
       }
       return null;
     });
-    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-        .setMockMethodCallHandler(const MethodChannel('plugins.flutter.io/camera'), (MethodCall methodCall) async {
-      if (methodCall.method == 'availableCameras') {
-        return <dynamic>[];
-      }
-      return null;
-    });
   });
 
   tearDown(() {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(channel, null);
-    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-        .setMockMethodCallHandler(const MethodChannel('plugins.flutter.io/camera'), null);
   });
 
-  testWidgets('CapturePage loads successfully and triggers OCR simulation',
+  testWidgets('HomeScreen loads successfully and triggers OCR simulation',
       (WidgetTester tester) async {
     SharedPreferences.setMockInitialValues({});
     final prefs = await SharedPreferences.getInstance();
@@ -57,32 +66,30 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
+          cameraProvider.overrideWith((ref) => FakeCameraNotifier()),
           databaseProvider.overrideWithValue(db),
           sharedPreferencesProvider.overrideWithValue(prefs),
           translationServiceProvider.overrideWithValue(FakeTranslationService()),
         ],
         child: const MaterialApp(
-          home: CapturePage(),
+          home: HomeScreen(),
         ),
       ),
     );
 
     // Wait for camera initialization (which falls back gracefully in tests)
-    await tester.pumpAndSettle();
+    await tester.pump(const Duration(seconds: 2));
 
-    // Verify initial layout elements are displayed
-    expect(find.byIcon(Icons.videocam_off_outlined), findsOneWidget);
-    expect(find.text('READ'), findsOneWidget);
-    expect(find.byIcon(Icons.camera_alt), findsOneWidget);
-
-    // Verify that TTS spoke the camera initialization fallback message
-    expect(spokenText, contains('Camera not available. Simulating capture environment.'));
+    // Verify initial layout elements for Text Reader (Page 0) are displayed
+    expect(find.byType(CircularProgressIndicator), findsOneWidget); // Viewfinder loading fallback
+    expect(find.text('Text Reader'), findsOneWidget); // Positioned FrostedChip
+    expect(find.byKey(const Key('shutter_button')), findsOneWidget); // Test key shutter button
 
     // Reset spoken logs for action testing
     spokenText.clear();
 
     // Trigger action (tap the shutter button to execute READ mode action)
-    final shutterFinder = find.byIcon(Icons.camera_alt);
+    final shutterFinder = find.byKey(const Key('shutter_button'));
     expect(shutterFinder, findsOneWidget);
     await tester.tap(shutterFinder, warnIfMissed: true);
     await tester.pump(const Duration(milliseconds: 500));
@@ -91,7 +98,7 @@ void main() {
     expect(spokenText, contains('Processing input.'));
 
     // Wait for the translation service and DB write to finish
-    await tester.pumpAndSettle();
+    await tester.pump(const Duration(seconds: 2));
 
     // The fallback simulation on non-web/test platforms for _performOcr yields:
     // "Identity Document scanned. Document Type: USA DRIVER LICENSE. Name: JOHN DOE. Document Number: D1234567. Born: 1990-12-14."

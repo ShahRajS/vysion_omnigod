@@ -1,9 +1,9 @@
 import 'package:go_router/go_router.dart';
 import 'package:vysion_omnigod/features/auth/ui/auth_page.dart';
-import 'package:vysion_omnigod/features/capture/ui/capture_page.dart';
 import 'package:vysion_omnigod/features/onboarding/ui/onboarding_page.dart';
 import 'package:vysion_omnigod/features/profile/ui/profile_page.dart';
 import 'package:vysion_omnigod/features/settings/ui/settings_page.dart';
+import 'package:vysion_omnigod/home_screen.dart';
 
 /// The global routing provider configuration for Vysion app.
 final router = GoRouter(
@@ -19,7 +19,7 @@ final router = GoRouter(
     ),
     GoRoute(
       path: '/',
-      builder: (context, state) => const CapturePage(),
+      builder: (context, state) => const HomeScreen(),
     ),
     GoRoute(
       path: '/settings',
