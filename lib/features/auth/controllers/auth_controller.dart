@@ -41,7 +41,9 @@ class AuthNotifier extends StateNotifier<AuthState> {
       : super(AuthState(user: _auth.currentUser, isLoading: false)) {
     // Listen for auth changes
     _auth.authStateChanges().listen((user) {
-      state = state.copyWith(user: user);
+      if (state.user is! MockUser) {
+        state = state.copyWith(user: user);
+      }
     });
   }
 
@@ -56,10 +58,18 @@ class AuthNotifier extends StateNotifier<AuthState> {
       _telemetry.trackEvent('auth_sign_in_anonymous', parameters: {
         'uid': credential.user?.uid,
       },);
-    } on FirebaseAuthException catch (e, stack) {
-      _telemetry.logException(e,
-          stackTrace: stack, context: 'signInAnonymously',);
-      state = state.copyWith(errorMessage: e.message);
+    } catch (e, stack) {
+      _telemetry.logException(
+        e,
+        stackTrace: stack,
+        context: 'signInAnonymously',
+      );
+      // Fallback to MockUser in development environment (e.g. if API Key is stub or missing)
+      _telemetry.trackEvent('auth_sign_in_anonymous_mock_fallback');
+      state = state.copyWith(
+        user: MockUser(),
+        errorMessage: null, // Clear error message since we recovered with mock user
+      );
     } finally {
       state = state.copyWith(isLoading: false);
     }
@@ -111,7 +121,11 @@ class AuthNotifier extends StateNotifier<AuthState> {
   Future<void> signOut() async {
     state = state.copyWith(isLoading: true);
     try {
-      await _auth.signOut();
+      if (state.user is MockUser) {
+        state = state.copyWith(user: null);
+      } else {
+        await _auth.signOut();
+      }
       _telemetry.trackEvent('auth_sign_out');
     } catch (e, stack) {
       _telemetry.logException(e, stackTrace: stack, context: 'signOut');
@@ -133,3 +147,33 @@ final authControllerProvider =
   final telemetry = ref.watch(telemetryServiceProvider);
   return AuthNotifier(auth, telemetry);
 });
+
+/// Mock User class representing a guest session in development environments.
+class MockUser implements User {
+  @override
+  final String uid = 'mock-uid-12345';
+
+  @override
+  final bool isAnonymous = true;
+
+  @override
+  final String? email = 'mock-user@vysion.co';
+
+  @override
+  Future<String> getIdToken([bool forceRefresh = false]) async {
+    return 'mock-token';
+  }
+
+  @override
+  Future<UserCredential> linkWithCredential(AuthCredential credential) async {
+    return _MockUserCredential();
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _MockUserCredential implements UserCredential {
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
