@@ -1,0 +1,83 @@
+openapi: 3.1.0
+info:
+  title: Vysion Backend Orchestrator
+  version: 2.0.0
+  description: API specification for the Vysion v2 accessibility co-pilot orchestrator.
+paths:
+  /v1/gemini/token:
+    get:
+      summary: Mint an ephemeral OAuth token for Gemini Live WebSocket connection
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Ephemeral credentials successfully minted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token:
+                    type: string
+                    description: Access token for Gemini websocket connection
+                  expiresAt:
+                    type: string
+                    description: ISO string representing expiration timestamp
+        '401':
+          description: Unauthorized request or invalid JWT token
+
+  /v1/subscription/status:
+    get:
+      summary: Check Stripe subscription status for the authenticated user
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Subscription status retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  active:
+                    type: boolean
+                    description: Whether subscription is active
+        '401':
+          description: Unauthorized request
+
+  /v1/places/proxy:
+    post:
+      summary: Proxy for Google Places queries preventing client API key exposure
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                query:
+                  type: string
+                  description: Search location or query string
+              required:
+                - query
+      responses:
+        '200':
+          description: Places lookup result
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+        '401':
+          description: Unauthorized request
+        '500':
+          description: External Places API exception
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT

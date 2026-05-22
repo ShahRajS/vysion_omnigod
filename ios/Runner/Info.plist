@@ -66,5 +66,15 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<key>NSCameraUsageDescription</key>
+	<string>Vysion requires camera access to recognize signs, describe scenes, and identify obstacles in real time.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Vysion requires microphone access to let you talk to your real-time AI copilot.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Vysion requires location access to provide turn-by-turn walking navigation and locate accessible POIs.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Vysion requires photo library access if you wish to analyze saved images.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Vysion requires speech recognition access to transcribe voice requests for the AI copilot.</string>
 </dict>
 </plist>

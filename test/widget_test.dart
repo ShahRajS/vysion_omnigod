@@ -1,30 +1,40 @@
-// This is a basic Flutter widget test.
-//
-// To perform an interaction with a widget in your test, use the WidgetTester
-// utility in the flutter_test package. For example, you can send tap and scroll
-// gestures. You can also use WidgetTester to find child widgets in the widget
-// tree, read text, and verify that the values of widget properties are correct.
-
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-
-import 'package:vysion_omnigod/main.dart';
+import 'package:vysion_omnigod/features/onboarding/ui/onboarding_page.dart';
 
 void main() {
-  testWidgets('Counter increments smoke test', (WidgetTester tester) async {
-    // Build our app and trigger a frame.
-    await tester.pumpWidget(const MyApp());
+  testWidgets('Onboarding page accessibility semantics test',
+      (WidgetTester tester) async {
+    // Build OnboardingPage within ProviderScope and MaterialApp
+    await tester.pumpWidget(
+      const ProviderScope(
+        child: MaterialApp(
+          home: OnboardingPage(),
+        ),
+      ),
+    );
 
-    // Verify that our counter starts at 0.
-    expect(find.text('0'), findsOneWidget);
-    expect(find.text('1'), findsNothing);
+    // Verify Title and primary elements exist
+    expect(find.text('Vysion'), findsOneWidget);
+    expect(find.text('Your real-time audio-visual walking companion.'),
+        findsOneWidget,);
+    expect(find.text('GRANT ACCESS'), findsOneWidget);
 
-    // Tap the '+' icon and trigger a frame.
-    await tester.tap(find.byIcon(Icons.add));
-    await tester.pump();
+    // Verify presence of accessible button semantic properties
+    final buttonFinder = find.byType(ElevatedButton);
+    expect(buttonFinder, findsOneWidget);
 
-    // Verify that our counter has incremented.
-    expect(find.text('0'), findsNothing);
-    expect(find.text('1'), findsOneWidget);
+    // Verify semantics match using standard matchesSemantics matcher
+    expect(
+      tester.getSemantics(buttonFinder),
+      matchesSemantics(
+        label: 'Grant Permissions Button. Double tap to grant location access.',
+        isButton: true,
+        hasTapAction: true,
+        isEnabled: true,
+        hasEnabledState: true,
+      ),
+    );
   });
 }

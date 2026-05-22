@@ -1,0 +1,28 @@
+{
+  "@@locale": "en",
+  "appTitle": "Vysion",
+  "@appTitle": {
+    "description": "The name of the application"
+  },
+  "readMode": "Read",
+  "describeMode": "Describe",
+  "navigateMode": "Navigate",
+  "welcomeMessage": "Welcome to Vysion, your accessibility co-pilot.",
+  "onboardingInstruction": "Swipe left or right to switch modes. Tap to action. Swipe down to cancel speech.",
+  "startJourney": "Get Started",
+  "cameraPermissionRequired": "Camera permission is required to analyze the environment.",
+  "locationPermissionRequired": "Location permission is required for navigation guidance.",
+  "microphonePermissionRequired": "Microphone permission is required to talk to the co-pilot.",
+  "signIn": "Sign In",
+  "signOut": "Sign Out",
+  "email": "Email",
+  "password": "Password",
+  "settings": "Settings",
+  "speechRate": "Speech Rate",
+  "hapticIntensity": "Haptic Feedback Intensity",
+  "destinationPlaceholder": "Where to?",
+  "hazardWarning": "Alert: Hazard detected in front of you!",
+  "arrived": "You have arrived at your destination.",
+  "ocrReadingError": "Unable to read text from sign. Please try again.",
+  "navigationCancelled": "Navigation cancelled."
+}
