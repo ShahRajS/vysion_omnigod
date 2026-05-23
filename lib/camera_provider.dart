@@ -103,14 +103,26 @@ class CameraNotifier extends StateNotifier<CameraAppState> {
         return;
       }
 
-      final cameras = await availableCameras();
+      // availableCameras() can hang indefinitely on some web browsers or
+      // during tests. Wrap with a timeout to keep the app responsive.
+      List<CameraDescription> cameras;
+      try {
+        cameras = await availableCameras().timeout(const Duration(seconds: 5));
+      } catch (_) {
+        cameras = const [];
+      }
+
       if (cameras.isEmpty) {
+        // On web without a camera, mark as initialized so the HomeScreen
+        // renders (without a preview) rather than showing a perpetual spinner.
         state = CameraAppState(
           cameras: const [],
-          isInitialized: false,
+          isInitialized: true,
           isPermissionGranted: true,
           isPermissionDeniedPermanently: false,
-          errorMessage: 'No available cameras found on this device.',
+          errorMessage: kIsWeb
+              ? null
+              : 'No available cameras found on this device.',
         );
         return;
       }
@@ -146,7 +158,7 @@ class CameraNotifier extends StateNotifier<CameraAppState> {
       state = CameraAppState(
         cameras: state.cameras,
         controller: state.controller,
-        isInitialized: false,
+        isInitialized: true, // Mark initialized even on error so UI doesn't block
         isPermissionGranted: true,
         isPermissionDeniedPermanently: false,
         errorMessage: 'Failed to start camera. Error: $e',
