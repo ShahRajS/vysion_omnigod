@@ -11,24 +11,13 @@ class AppConfig {
   });
 
   /// Reads from the command-line environment (--dart-define) at compile time.
+  /// If variables are missing (e.g. local dev without --dart-define), empty
+  /// strings are used and services degrade gracefully without crashing.
   factory AppConfig.fromEnvironment() {
     const geminiApiHost = String.fromEnvironment('GEMINI_API_HOST');
     const mapsApiKeyAndroid = String.fromEnvironment('MAPS_API_KEY_ANDROID');
     const mapsApiKeyIos = String.fromEnvironment('MAPS_API_KEY_IOS');
     const backendBaseUrl = String.fromEnvironment('BACKEND_BASE_URL');
-
-    if (geminiApiHost.isEmpty ||
-        mapsApiKeyAndroid.isEmpty ||
-        mapsApiKeyIos.isEmpty ||
-        backendBaseUrl.isEmpty) {
-      throw StateError(
-        'Missing required compile-time variables. Verify --dart-define parameters:\n'
-        '- GEMINI_API_HOST\n'
-        '- MAPS_API_KEY_ANDROID\n'
-        '- MAPS_API_KEY_IOS\n'
-        '- BACKEND_BASE_URL',
-      );
-    }
 
     return const AppConfig(
       geminiApiHost: geminiApiHost,

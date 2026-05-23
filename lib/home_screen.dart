@@ -1,5 +1,6 @@
 // FILE: lib/home_screen.dart
 import 'dart:io';
+import 'dart:typed_data';
 import 'dart:ui';
 import 'package:blinkid_flutter/blinkid_flutter.dart';
 import 'package:camera/camera.dart';
@@ -8,6 +9,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:go_router/go_router.dart';
+import 'package:google_generative_ai/google_generative_ai.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import 'package:vysion_omnigod/camera_provider.dart';
@@ -277,33 +279,107 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
         await _tts.speak('Error scanning document.');
       }
     } else {
-      // Simulation fallback for Web or simulator environments where native OCR is unavailable
-      final text = kIsWeb
-          ? 'Documento de Identidad: Juan Pérez, Fecha de nacimiento: 14 de diciembre de 1990, Número de documento: 12345678A.'
-          : 'Identity Document scanned. Document Type: USA DRIVER LICENSE. Name: JOHN DOE. Document Number: D1234567. Born: 1990-12-14.';
+      // Web / simulator fallback: capture a real frame from the camera and
+      // send it to Gemini vision to read whatever text is visible.
+      await _performGeminiVisionOcr();
+    }
+  }
 
-      final translatedText = await ref.read(translationServiceProvider).translateToEnglish(text);
-      
-      setState(() {
-        _statusMessage = 'Scanned: "$translatedText"';
-      });
+  /// Captures the current camera frame and uses Gemini 1.5 Flash vision to
+  /// read any visible text, then speaks and displays the result.
+  Future<void> _performGeminiVisionOcr() async {
+    // ---------- 1. Capture a JPEG from the live camera feed ----------
+    Uint8List? imageBytes;
+    final cameraState = ref.read(cameraProvider);
+    final controller = cameraState.controller;
+
+    if (controller != null && controller.value.isInitialized) {
+      try {
+        final xfile = await controller
+            .takePicture()
+            .timeout(const Duration(seconds: 5));
+        imageBytes = await xfile.readAsBytes();
+      } catch (e) {
+        // Camera capture failed — proceed without image (text-only prompt)
+      }
+    }
+
+    if (imageBytes == null) {
+      setState(() => _statusMessage = 'No camera image available.');
+      await _tts.speak('No camera image available.');
+      return;
+    }
+
+    // ---------- 2. Call Gemini 1.5 Flash with vision ----------
+    // API key: pass via --dart-define=GEMINI_API_KEY=... or set directly below.
+    const apiKey = String.fromEnvironment(
+      'GEMINI_API_KEY',
+      defaultValue: '',
+    );
+
+    if (apiKey.isEmpty) {
+      setState(() => _statusMessage =
+          'Add --dart-define=GEMINI_API_KEY=<key> to read real text.');
+      await _tts.speak(
+          'Gemini API key not configured. Please add your key to enable live text reading.');
+      return;
+    }
+
+    try {
+      final model = GenerativeModel(
+        model: 'gemini-1.5-flash',
+        apiKey: apiKey,
+      );
+
+      const prompt =
+          'Look at this image and read all the text you can see. '
+          'Return ONLY the text found, exactly as written, with no commentary, '
+          'labels, or explanation. If there is no text, reply with exactly: '
+          'No text detected.';
+
+      final response = await model
+          .generateContent([
+            Content.multi([
+              TextPart(prompt),
+              DataPart('image/jpeg', imageBytes),
+            ])
+          ])
+          .timeout(const Duration(seconds: 15));
+
+      final rawText = response.text?.trim() ?? '';
+
+      if (rawText.isEmpty || rawText == 'No text detected.') {
+        setState(() => _statusMessage = 'No text detected.');
+        await _tts.speak('No text detected.');
+        return;
+      }
+
+      // Translate to English if necessary
+      final translatedText = await ref
+          .read(translationServiceProvider)
+          .translateToEnglish(rawText);
+
+      setState(() => _statusMessage = 'Scanned: "$translatedText"');
       await _tts.speak(translatedText);
 
-      // Save to Drift database (save the raw scanned text)
+      // Persist to local DB
       try {
         await ref
             .read(databaseProvider)
             .into(ref.read(databaseProvider).ocrHistory)
             .insert(
               OcrHistoryCompanion.insert(
-                rawText: text,
+                rawText: rawText,
                 createdAt: DateTime.now(),
               ),
             )
             .timeout(const Duration(seconds: 1));
-      } catch (e) {
-        // Log or ignore database write failures gracefully
+      } catch (_) {
+        // DB write failure is non-fatal
       }
+    } catch (e) {
+      setState(() => _statusMessage = 'OCR error: ${e.runtimeType}');
+      await _tts.speak('Error reading text.');
     }
   }
 
@@ -656,8 +732,19 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     final cameraState = ref.watch(cameraProvider);
     final theme = Theme.of(context);
 
-    // If permission is denied, overlay the centered dark card immediately
-    if (!cameraState.isPermissionGranted) {
+    // Show loading while the camera is still initializing (not yet checked).
+    // This prevents a false "permission denied" flash on startup.
+    if (!cameraState.isInitialized && !cameraState.isPermissionDeniedPermanently) {
+      return const Scaffold(
+        backgroundColor: Colors.black,
+        body: Center(
+          child: CircularProgressIndicator(color: Colors.white),
+        ),
+      );
+    }
+
+    // If permission is explicitly and permanently denied, show the request card.
+    if (cameraState.isPermissionDeniedPermanently) {
       return _buildPermissionDeniedScreen(cameraState);
     }
 
@@ -841,9 +928,29 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
     final controller = cameraState.controller;
     if (controller == null || !controller.value.isInitialized) {
-      return const Center(
-        child: CircularProgressIndicator(
-          color: Colors.white,
+      // No camera available (e.g. web without a physical camera). Show a
+      // dark background so overlays and controls are still visible.
+      return Container(
+        color: Colors.black,
+        child: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.videocam_off_outlined,
+                color: Colors.white.withValues(alpha: 0.3),
+                size: 56,
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'Camera unavailable',
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.3),
+                  fontSize: 14,
+                ),
+              ),
+            ],
+          ),
         ),
       );
     }
