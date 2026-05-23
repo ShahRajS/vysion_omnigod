@@ -4,10 +4,11 @@ import 'package:vysion_omnigod/features/capture/ui/capture_page.dart';
 import 'package:vysion_omnigod/features/onboarding/ui/onboarding_page.dart';
 import 'package:vysion_omnigod/features/profile/ui/profile_page.dart';
 import 'package:vysion_omnigod/features/settings/ui/settings_page.dart';
+import 'package:vysion_omnigod/pages/navigation_page.dart';
 
 /// The global routing provider configuration for Vysion app.
 final router = GoRouter(
-  initialLocation: '/onboarding',
+  initialLocation: '/navigate', // TODO: restore to '/onboarding'
   routes: [
     GoRoute(
       path: '/onboarding',
@@ -20,6 +21,10 @@ final router = GoRouter(
     GoRoute(
       path: '/',
       builder: (context, state) => const CapturePage(),
+    ),
+    GoRoute(
+      path: '/navigate',
+      builder: (context, state) => const NavigationPage(),
     ),
     GoRoute(
       path: '/settings',

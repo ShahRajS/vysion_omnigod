@@ -107,7 +107,7 @@ class _CapturePageState extends ConsumerState<CapturePage> {
         case CaptureMode.describe:
           await _performLiveDescribe();
         case CaptureMode.navigate:
-          await _performNavigationDemo();
+          if (mounted) await context.push('/navigate');
       }
     } catch (e) {
       await AccessibleHaptics.playErrorOrCancel();
@@ -152,11 +152,6 @@ class _CapturePageState extends ConsumerState<CapturePage> {
     }
     await _tts.speak(
         "Gemini Live describes: You are walking down a concrete sidewalk. A metal obstacle is located 2 meters in front of you at twelve o'clock.",);
-  }
-
-  Future<void> _performNavigationDemo() async {
-    await _tts.speak(
-        "Navigation co-pilot active. Walk straight 10 meters, then turn right to three o'clock.",);
   }
 
   Future<void> _cancelActiveOperation() async {

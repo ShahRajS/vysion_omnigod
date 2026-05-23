@@ -3,7 +3,7 @@ import cors from 'cors';
 import * as admin from 'firebase-admin';
 import { getGeminiToken } from './services/gemini-token';
 import { checkSubscriptionStatus } from './services/stripe';
-import { proxyPlacesSearch } from './services/maps-proxy';
+import { proxyPlacesSearch, proxyDirections, proxyGeocode } from './services/maps-proxy';
 
 // Initialize Firebase Admin SDK
 try {
@@ -59,6 +59,8 @@ export async function validateFirebaseJwt(
 app.get('/v1/gemini/token', validateFirebaseJwt as any, getGeminiToken);
 app.get('/v1/subscription/status', validateFirebaseJwt as any, checkSubscriptionStatus);
 app.post('/v1/places/proxy', validateFirebaseJwt as any, proxyPlacesSearch);
+app.get('/v1/maps/directions', proxyDirections);
+app.get('/v1/maps/geocode', proxyGeocode);
 
 // Default Health Probe
 app.get('/health', (req: Request, res: Response) => {

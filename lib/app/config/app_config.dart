@@ -5,6 +5,7 @@ class AppConfig {
   /// Creates the app config from the environmental definitions.
   const AppConfig({
     required this.geminiApiHost,
+    required this.geminiApiKey,
     required this.mapsApiKeyAndroid,
     required this.mapsApiKeyIos,
     required this.backendBaseUrl,
@@ -13,17 +14,20 @@ class AppConfig {
   /// Reads from the command-line environment (--dart-define) at compile time.
   factory AppConfig.fromEnvironment() {
     const geminiApiHost = String.fromEnvironment('GEMINI_API_HOST');
+    const geminiApiKey = String.fromEnvironment('GEMINI_API_KEY');
     const mapsApiKeyAndroid = String.fromEnvironment('MAPS_API_KEY_ANDROID');
     const mapsApiKeyIos = String.fromEnvironment('MAPS_API_KEY_IOS');
     const backendBaseUrl = String.fromEnvironment('BACKEND_BASE_URL');
 
     if (geminiApiHost.isEmpty ||
+        geminiApiKey.isEmpty ||
         mapsApiKeyAndroid.isEmpty ||
         mapsApiKeyIos.isEmpty ||
         backendBaseUrl.isEmpty) {
       throw StateError(
         'Missing required compile-time variables. Verify --dart-define parameters:\n'
         '- GEMINI_API_HOST\n'
+        '- GEMINI_API_KEY\n'
         '- MAPS_API_KEY_ANDROID\n'
         '- MAPS_API_KEY_IOS\n'
         '- BACKEND_BASE_URL',
@@ -32,6 +36,7 @@ class AppConfig {
 
     return const AppConfig(
       geminiApiHost: geminiApiHost,
+      geminiApiKey: geminiApiKey,
       mapsApiKeyAndroid: mapsApiKeyAndroid,
       mapsApiKeyIos: mapsApiKeyIos,
       backendBaseUrl: backendBaseUrl,
@@ -40,6 +45,9 @@ class AppConfig {
 
   /// Ephemeral host URL for Gemini Live WebSocket connection.
   final String geminiApiHost;
+
+  /// Gemini API key for authentication.
+  final String geminiApiKey;
 
   /// Google Maps SDK Key for Android.
   final String mapsApiKeyAndroid;
