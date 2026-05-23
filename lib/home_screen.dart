@@ -4,9 +4,13 @@ import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_tts/flutter_tts.dart';
 import 'package:permission_handler/permission_handler.dart';
 
+import 'package:vysion_omnigod/app/config/app_config.dart';
 import 'package:vysion_omnigod/camera_provider.dart';
+import 'package:vysion_omnigod/core/ai/photo_describe_client.dart';
+import 'package:vysion_omnigod/core/speech/browser_speech.dart';
 import 'package:vysion_omnigod/pages/audio_descriptions_page.dart';
 import 'package:vysion_omnigod/pages/navigation_page.dart';
 import 'package:vysion_omnigod/pages/text_reader_page.dart';
@@ -35,6 +39,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
   // Recording pulse states for Page 1
   bool _isRecording = false;
+  bool _isDescribing = false;
+  final FlutterTts _tts = FlutterTts();
+  late final PhotoDescribeClient _photoDescribeClient;
   late AnimationController _recordPulseController;
 
   // Navigation pulse states for Page 2
@@ -44,6 +51,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   @override
   void initState() {
     super.initState();
+    _photoDescribeClient = PhotoDescribeClient(
+      config: ref.read(appConfigProvider),
+    );
 
     // 300ms flash fade in/out animation configuration
     _flashController = AnimationController(
@@ -104,6 +114,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   @override
   void dispose() {
     _pageController.dispose();
+    _tts.stop();
     _flashController.dispose();
     _recordPulseController.dispose();
     _navigationPulseController.dispose();
@@ -118,20 +129,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   }
 
   // 4. Shutter Tap handler (formerly _captureAndReadText)
-  void _onShutterTap() {
+  Future<void> _onShutterTap() async {
     _triggerFlash();
-    debugPrint('TEXT READER: capture triggered');
-    ScaffoldMessenger.of(context).clearSnackBars();
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Reading text...'),
-        behavior: SnackBarBehavior.floating,
-        duration: Duration(seconds: 2),
-      ),
-    );
+    await _describeScene();
   }
 
   void _toggleRecording() {
+    if (_isDescribing) return;
+
     setState(() {
       _isRecording = !_isRecording;
       if (_isRecording) {
@@ -143,16 +148,86 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     });
   }
 
-  void _describeScene() {
-    debugPrint('AUDIO DESC: scene description triggered');
+  Future<void> _describeScene() async {
+    final cameraState = ref.read(cameraProvider);
+    final controller = cameraState.controller;
+
+    if (controller == null || !controller.value.isInitialized) {
+      ScaffoldMessenger.of(context).clearSnackBars();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Camera is not ready yet.'),
+          behavior: SnackBarBehavior.floating,
+          duration: Duration(seconds: 2),
+        ),
+      );
+      setState(() {
+        _isRecording = false;
+      });
+      _recordPulseController.stop();
+      return;
+    }
+
+    setState(() {
+      _isDescribing = true;
+    });
+
     ScaffoldMessenger.of(context).clearSnackBars();
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text('Describing scene...'),
+        content: Text('Capturing and generating audio...'),
         behavior: SnackBarBehavior.floating,
         duration: Duration(seconds: 2),
       ),
     );
+
+    try {
+      final picture = await controller.takePicture();
+      final imageBytes = await picture.readAsBytes();
+      final result = await _photoDescribeClient.describePhoto(
+        imageBytes: imageBytes,
+        authToken: 'mock-token',
+      );
+
+      if (kIsWeb) {
+        await speakWithBrowser(result.description);
+      } else {
+        await _tts.speak(result.description);
+      }
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).clearSnackBars();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            result.description.isEmpty
+                ? 'Audio description playing.'
+                : result.description,
+          ),
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 4),
+        ),
+      );
+    } catch (e) {
+      debugPrint('AUDIO DESC: photo description failed: $e');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).clearSnackBars();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Audio description failed: $e'),
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 4),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isDescribing = false;
+          _isRecording = false;
+        });
+      }
+      _recordPulseController.stop();
+    }
   }
 
   void _startNavigation() {
@@ -384,15 +459,24 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                     shape: BoxShape.circle,
                   ),
                   child: Center(
-                    child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 200),
-                      width: _isRecording ? 24 : 16,
-                      height: _isRecording ? 24 : 16,
-                      decoration: BoxDecoration(
-                        color: Colors.red[600],
-                        shape: BoxShape.circle,
-                      ),
-                    ),
+                    child: _isDescribing
+                        ? const SizedBox(
+                            width: 24,
+                            height: 24,
+                            child: CircularProgressIndicator(
+                              color: Colors.black,
+                              strokeWidth: 3,
+                            ),
+                          )
+                        : AnimatedContainer(
+                            duration: const Duration(milliseconds: 200),
+                            width: _isRecording ? 24 : 16,
+                            height: _isRecording ? 24 : 16,
+                            decoration: BoxDecoration(
+                              color: Colors.red[600],
+                              shape: BoxShape.circle,
+                            ),
+                          ),
                   ),
                 ),
               );
@@ -430,8 +514,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   Widget build(BuildContext context) {
     final cameraState = ref.watch(cameraProvider);
 
-    // If permission is denied, overlay the centered dark card immediately
-    if (!cameraState.isPermissionGranted) {
+    // On web, keep the demo controls visible even while browser permission
+    // or camera startup is in progress.
+    if (!kIsWeb && !cameraState.isPermissionGranted) {
       return _buildPermissionDeniedScreen(cameraState);
     }
 
@@ -538,6 +623,19 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
   /// Builds a correctly scaled full-bleed camera preview.
   Widget _buildCameraPreview(CameraAppState cameraState) {
+    if (cameraState.errorMessage != null) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Text(
+            cameraState.errorMessage!,
+            textAlign: TextAlign.center,
+            style: const TextStyle(color: Colors.white70, fontSize: 15),
+          ),
+        ),
+      );
+    }
+
     if (!cameraState.isInitialized) {
       return const Center(
         child: CircularProgressIndicator(

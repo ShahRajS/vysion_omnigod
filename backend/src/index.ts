@@ -1,3 +1,15 @@
+import dotenv from 'dotenv';
+import fs from 'fs';
+import path from 'path';
+
+// Load .env from backend working directory first, then fallback to repo root if needed.
+dotenv.config();
+
+const rootEnv = path.resolve(__dirname, '..', '..', '.env');
+if (!process.env.GEMINI_API_KEY && fs.existsSync(rootEnv)) {
+  dotenv.config({ path: rootEnv });
+}
+
 import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import * as admin from 'firebase-admin';
@@ -14,7 +26,7 @@ try {
 }
 
 const app = express();
-app.use(cors());
+app.use(cors({ exposedHeaders: ['X-Description'] }));
 app.use(express.json());
 
 // Extend express Request type to include user information

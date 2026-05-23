@@ -127,9 +127,13 @@ class CameraNotifier extends StateNotifier<CameraAppState> {
         enableAudio: false,
       );
 
-      state = state.copyWith(
+      state = CameraAppState(
         cameras: cameras,
         controller: controller,
+        isInitialized: false,
+        isPermissionGranted: true,
+        isPermissionDeniedPermanently: false,
+        errorMessage: 'Starting camera...',
       );
 
       await controller.initialize();

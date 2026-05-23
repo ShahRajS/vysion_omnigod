@@ -1,19 +1,15 @@
-import 'dart:io';
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
 import 'package:vysion_omnigod/app/config/app_config.dart';
 
-/// Result from the photo describe backend, containing streamed MP3 audio bytes.
+/// Result from the photo describe backend.
 class PhotoDescribeResult {
-  /// Audio bytes returned by the backend.
-  final Uint8List audioBytes;
-
-  /// The text description returned in the response header.
+  /// The text description returned by Gemini.
   final String description;
 
   const PhotoDescribeResult({
-    required this.audioBytes,
     required this.description,
   });
 }
@@ -35,22 +31,21 @@ class PhotoDescribeClient {
     final url = Uri.parse('${config.backendBaseUrl}/v1/photo/describe');
     final headers = <String, String>{
       'Content-Type': 'image/jpeg',
-      'Accept': 'audio/mpeg',
+      'Accept': 'application/json',
       if (authToken != null) 'Authorization': 'Bearer $authToken',
     };
 
     final response = await _client.post(url, headers: headers, body: imageBytes);
 
     if (response.statusCode != 200) {
-      throw HttpException(
+      throw Exception(
         'Photo describe request failed with status ${response.statusCode}: ${response.body}',
-        uri: url,
       );
     }
 
-    final description = response.headers['x-description'] ?? '';
+    final data = jsonDecode(response.body) as Map<String, dynamic>;
+    final description = data['description'] as String? ?? '';
     return PhotoDescribeResult(
-      audioBytes: response.bodyBytes,
       description: description,
     );
   }

@@ -1,34 +1,21 @@
-<<<<<<< Updated upstream
-import 'dart:io';
-import 'package:camera/camera.dart';
-import 'package:flutter/foundation.dart';
-=======
 import 'dart:developer' as developer;
 import 'dart:io';
-import 'dart:typed_data';
 
-import 'package:audioplayers/audioplayers.dart';
-import 'package:camera/camera.dart';
-import 'package:firebase_auth/firebase_auth.dart';
->>>>>>> Stashed changes
-import 'package:flutter/material.dart';
 import 'package:blinkid_flutter/blinkid_flutter.dart';
+import 'package:camera/camera.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_tts/flutter_tts.dart';
-import 'package:go_router/go_router.dart';
-<<<<<<< Updated upstream
-import 'package:vysion_omnigod/core/accessibility/gesture_decoder.dart';
-import 'package:vysion_omnigod/core/accessibility/haptics.dart';
-import 'package:vysion_omnigod/core/ai/gemini_live_client.dart';
-import 'package:vysion_omnigod/core/ai/translation_service.dart';
-=======
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
+import 'package:go_router/go_router.dart';
 import 'package:vysion_omnigod/app/config/app_config.dart';
 import 'package:vysion_omnigod/core/accessibility/gesture_decoder.dart';
 import 'package:vysion_omnigod/core/accessibility/haptics.dart';
 import 'package:vysion_omnigod/core/ai/photo_describe_client.dart';
->>>>>>> Stashed changes
+import 'package:vysion_omnigod/core/ai/translation_service.dart';
 import 'package:vysion_omnigod/core/storage/database.dart';
+import 'package:vysion_omnigod/features/auth/controllers/auth_controller.dart';
 import 'package:vysion_omnigod/features/settings/controllers/settings_controller.dart';
 
 /// The active mode of the camera overlay.
@@ -55,13 +42,8 @@ class CapturePage extends ConsumerStatefulWidget {
 class _CapturePageState extends ConsumerState<CapturePage> {
   CameraController? _cameraController;
   final FlutterTts _tts = FlutterTts();
-<<<<<<< Updated upstream
-=======
   final TextRecognizer _textRecognizer = TextRecognizer();
-  final AudioPlayer _audioPlayer = AudioPlayer();
   late final PhotoDescribeClient _photoDescribeClient;
-  Uint8List? _lastCapturedImageBytes;
->>>>>>> Stashed changes
   CaptureMode _currentMode = CaptureMode.read;
   bool _isProcessing = false;
   String? _statusMessage;
@@ -97,11 +79,7 @@ class _CapturePageState extends ConsumerState<CapturePage> {
   @override
   void dispose() {
     _cameraController?.dispose();
-<<<<<<< Updated upstream
-=======
     _textRecognizer.close();
-    _audioPlayer.dispose();
->>>>>>> Stashed changes
     _tts.stop();
     super.dispose();
   }
@@ -313,7 +291,7 @@ class _CapturePageState extends ConsumerState<CapturePage> {
     if (user == null) {
       return 'mock-token';
     }
-    return await user.getIdToken();
+    return await user.getIdToken() ?? 'mock-token';
   }
 
   Future<void> _saveDescription(String description) async {
@@ -332,7 +310,6 @@ class _CapturePageState extends ConsumerState<CapturePage> {
     if (_cameraController != null && _cameraController!.value.isInitialized) {
       final picture = await _cameraController!.takePicture();
       final imageBytes = await picture.readAsBytes();
-      _lastCapturedImageBytes = imageBytes;
       final authToken = await _getBackendAuthToken();
 
       await _tts.speak('Photo captured. Sending image to backend for description.');
@@ -347,8 +324,7 @@ class _CapturePageState extends ConsumerState<CapturePage> {
           await _saveDescription(result.description);
         }
 
-        await _tts.speak('Playing the generated audio description.');
-        await _audioPlayer.play(BytesSource(result.audioBytes));
+        await _tts.speak(result.description);
       } catch (e) {
         developer.log('Photo describe request failed', error: e);
         await _tts.speak(
